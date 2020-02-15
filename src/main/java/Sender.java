@@ -1,6 +1,5 @@
 import com.mongodb.client.MongoCollection;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,21 +12,16 @@ import org.json.JSONObject;
 
 public class Sender implements Runnable {
 
-    MongoCollection<Document> collection;
-    MongoCollection<Document> bodiesCollection;
-    MongoCollection<Document> stationCollection;
-    List<Document> insertQueue = new ArrayList<Document>();
+    List<Document> insertQueue = new ArrayList<>();
     HashMap<String, List<Document>> insertQueueExtra = new HashMap<>();
     ArrayBlockingQueue<String> readBuffer;
-    Map<Type,MongoCollection<Document>> pool;
+    Map<SectionType, MongoCollection<Document>> pool;
 
-    public Sender( Map<Type,MongoCollection<Document>> pool, ArrayBlockingQueue<String> readBuffer) {
- /*       this.collection = pool.get(0);
-        this.bodiesCollection = pool.get(1);
-        this.stationCollection = pool.get(2);*/
+    public Sender(Map<SectionType, MongoCollection<Document>> pool, ArrayBlockingQueue<String> readBuffer) {
+        this.pool = pool;
         this.readBuffer = readBuffer;
-        insertQueueExtra.put(Type.BODIES.getVal(), new ArrayList<Document>());
-        insertQueueExtra.put(Type.STATIONS.getVal(), new ArrayList<Document>());
+        insertQueueExtra.put(SectionType.BODIES.getValue(), new ArrayList<>());
+        insertQueueExtra.put(SectionType.STATIONS.getValue(), new ArrayList<>());
     }
 
     @Override
@@ -41,13 +35,13 @@ public class Sender implements Runnable {
                 e.printStackTrace();
             }
             Map jsonMap = json.toMap();
-            if (!((JSONArray) json.get(Type.BODIES.getVal())).isEmpty()) {
+            if (!((JSONArray) json.get(SectionType.BODIES.getValue())).isEmpty()) {
                 System.out.println("Not empty bodies section detected");
-                splitEntry(jsonMap, Type.BODIES.getVal());
+                transferEntryToSeparateCollection(jsonMap, SectionType.BODIES.getValue());
             }
-            if (!((JSONArray) json.get(Type.STATIONS.getVal())).isEmpty()) {
+            if (!((JSONArray) json.get(SectionType.STATIONS.getValue())).isEmpty()) {
                 System.out.println("Not empty station section detected");
-                splitEntry(jsonMap, Type.STATIONS.getVal());
+                transferEntryToSeparateCollection(jsonMap, SectionType.STATIONS.getValue());
             }
 
             Document doc = new Document();
@@ -55,11 +49,13 @@ public class Sender implements Runnable {
             insertQueue.add(doc);
             if (insertQueue.size() > 1000) {
                 System.out.println("wrote: " + this.toString() + " 1000 docs");
-                pool.get(Type.SYSTEM).insertMany(insertQueue);
-                insertQueueExtra.entrySet().forEach(entry->{if(!entry.getValue().isEmpty()){
-                    pool.get(Type.valueOf(entry.getKey())).insertMany(entry.getValue());
-                    entry.getValue().clear();
-                }});
+                pool.get(SectionType.SYSTEM).insertMany(insertQueue);
+                insertQueueExtra.entrySet().forEach(entry -> {
+                    if (!entry.getValue().isEmpty()) {
+                        pool.get(SectionType.valueOf(entry.getKey().toUpperCase())).insertMany(entry.getValue());
+                        entry.getValue().clear();
+                    }
+                });
                 insertQueue.clear();
                 System.gc();
             }
@@ -67,17 +63,17 @@ public class Sender implements Runnable {
 
     }
 
-    private void splitEntry(Map jsonMap, String fieldName) {
-        ArrayList<HashMap<String, Object>> bodiesArray = (ArrayList<HashMap<String, Object>>) jsonMap.get(fieldName);
-        ArrayList bodiesReference = new ArrayList();
-        System.out.printf("number of %s : %d \n", fieldName, bodiesArray.size());
-        bodiesArray.forEach(bodiesEntryMap -> {
-            bodiesEntryMap.remove("updateTime");
+    private void transferEntryToSeparateCollection(Map<String, Object> jsonMap, String fieldName) {
+        ArrayList<HashMap<String, Object>> sectionArray = (ArrayList<HashMap<String, Object>>) jsonMap.get(fieldName);
+        ArrayList<ObjectId> sectionReference = new ArrayList<>();
+        System.out.printf("number of %s : %d \n", fieldName, sectionArray.size());
+        sectionArray.forEach(sectionEntryMap -> {
+            sectionEntryMap.remove("updateTime");
             ObjectId id = new ObjectId();
-            bodiesEntryMap.put("_id", id);
-            bodiesReference.add(id);
-            insertQueueExtra.get(fieldName).add(new Document(bodiesEntryMap));
+            sectionEntryMap.put("_id", id);
+            sectionReference.add(id);
+            insertQueueExtra.get(fieldName).add(new Document(sectionEntryMap));
         });
-        jsonMap.put(fieldName, bodiesReference);
+        jsonMap.put(fieldName, sectionReference);
     }
 }

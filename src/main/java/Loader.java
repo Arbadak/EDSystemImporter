@@ -25,12 +25,13 @@ public class Loader extends Thread {
             } catch (IOException e){
                 e.printStackTrace();
             }
+        assert reader != null;
         BufferedReader rd = new BufferedReader(reader);
 
             int readCount=0;
             int cleanThreshold=6000;
 
-        String line = null;
+        String line;
         try {
             while ((line = rd.readLine()) != null) {
                 if (line.equals("[") || line.equals("]")) continue;
